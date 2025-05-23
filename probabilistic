@@ -1,0 +1,140 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+def generate_traffic_and_visualize():
+    """
+    This function performs the full process of loading, cleaning, modeling,
+    and visualizing network traffic data.
+    """
+    # --- Step 1: Load and Combine Data ---
+    print("Loading data...")
+    try:
+        df1 = pd.read_csv('sample_new1.csv')
+        df2 = pd.read_csv('sample_new2.csv')
+    except FileNotFoundError as e:
+        print(f"Error: {e}. Please ensure both 'sample_new1.csv' and 'sample_new2.csv' are in the same directory.")
+        return
+
+    # Combine the two dataframes into one
+    df = pd.concat([df1, df2], ignore_index=True)
+    print("Data loaded and combined successfully.")
+
+    # --- Step 2: Clean and Standardize Data ---
+    print("Cleaning and standardizing data...")
+    # Based on our analysis, the correct column names are '_ws.col.Protocol' and 'frame.len'
+    # We will rename them to something simpler for easier use.
+    
+    # Check for the existence of the actual columns before renaming
+    if '_ws.col.Protocol' in df.columns and 'frame.len' in df.columns:
+        df.rename(columns={
+            '_ws.col.Protocol': 'protocol',
+            'frame.len': 'length'
+        }, inplace=True)
+    else:
+        print("Error: Could not find the expected columns '_ws.col.Protocol' and 'frame.len'.")
+        print("Columns found:", df.columns)
+        return
+
+    # Select the relevant columns and create a clean copy
+    df_clean = df[['protocol', 'length']].copy()
+
+    # Convert 'length' to a numeric type, forcing errors to NaN, then drop rows with NaN
+    df_clean['length'] = pd.to_numeric(df_clean['length'], errors='coerce')
+    df_clean.dropna(inplace=True)
+
+    # Convert 'length' to integer
+    df_clean['length'] = df_clean['length'].astype(int)
+    print("Data cleaning complete.")
+
+    # --- Step 3: Build the Probabilistic Generative Model ---
+    print("Building the probabilistic model...")
+    # 1. Calculate the real probability distribution of protocols
+    protocol_distribution = df_clean['protocol'].value_counts(normalize=True)
+
+    # 2. For each protocol, calculate the mean and standard deviation of packet lengths
+    length_statistics = df_clean.groupby('protocol')['length'].agg(['mean', 'std']).fillna(0)
+    print("Model training (statistical analysis) complete.")
+
+    # --- Step 4: Generate Synthetic Data ---
+    print("Generating synthetic data...")
+    num_samples = len(df_clean) # Generate the same number of samples as the real data
+
+    # Sample protocols based on their real distribution
+    synthetic_protocols = np.random.choice(
+        protocol_distribution.index,
+        size=num_samples,
+        p=protocol_distribution.values
+    )
+
+    synthetic_lengths = []
+    # For each generated protocol, sample a length based on its learned statistics
+    for proto in synthetic_protocols:
+        mean = length_statistics.loc[proto, 'mean']
+        std_dev = length_statistics.loc[proto, 'std']
+        
+        # Sample from a normal distribution
+        generated_length = np.random.normal(mean, std_dev)
+        
+        # Ensure the length is a non-negative integer
+        synthetic_lengths.append(max(0, int(generated_length)))
+
+    # Create the synthetic dataframe
+    synthetic_data = pd.DataFrame({
+        'protocol': synthetic_protocols,
+        'length': synthetic_lengths
+    })
+
+    # Save the synthetic data to a CSV file
+    synthetic_data.to_csv('synthetic_traffic_probabilistic.csv', index=False)
+    print(f"Successfully generated and saved {len(synthetic_data)} rows of synthetic data to 'synthetic_traffic_probabilistic.csv'.")
+
+    # --- Step 5: Visualize and Compare ---
+    print("Generating comparison plots...")
+    
+    # Protocol Distribution Comparison
+    fig, axes = plt.subplots(1, 2, figsize=(16, 7))
+    
+    sns.countplot(ax=axes[0], y='protocol', data=df_clean, order=df_clean['protocol'].value_counts().index, palette='viridis')
+    axes[0].set_title('Real Data: Protocol Distribution')
+    axes[0].set_xlabel('Count')
+    axes[0].set_ylabel('Protocol')
+
+    sns.countplot(ax=axes[1], y='protocol', data=synthetic_data, order=df_clean['protocol'].value_counts().index, palette='viridis')
+    axes[1].set_title('Synthetic Data: Protocol Distribution')
+    axes[1].set_xlabel('Count')
+    axes[1].set_ylabel('')
+
+    plt.suptitle('Comparison of Protocol Distributions', fontsize=16)
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    plt.savefig('protocol_comparison_plot.png')
+    plt.show()
+
+    # Packet Length Distribution Comparison
+    fig, axes = plt.subplots(1, 2, figsize=(16, 7))
+
+    sns.histplot(ax=axes[0], data=df_clean, x='length', bins=50, kde=True, color='blue')
+    axes[0].set_title('Real Data: Packet Length Distribution')
+    axes[0].set_xlabel('Packet Length (bytes)')
+    axes[0].set_ylabel('Frequency')
+    axes[0].set_xlim(0, max(df_clean['length'].max(), synthetic_data['length'].max()))
+
+
+    sns.histplot(ax=axes[1], data=synthetic_data, x='length', bins=50, kde=True, color='orange')
+    axes[1].set_title('Synthetic Data: Packet Length Distribution')
+    axes[1].set_xlabel('Packet Length (bytes)')
+    axes[1].set_ylabel('')
+    axes[1].set_xlim(0, max(df_clean['length'].max(), synthetic_data['length'].max()))
+
+
+    plt.suptitle('Comparison of Packet Length Distributions', fontsize=16)
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    plt.savefig('length_comparison_plot.png')
+    plt.show()
+
+    print("Visualization complete. Plots saved as 'protocol_comparison_plot.png' and 'length_comparison_plot.png'.")
+
+# Execute the main function
+if __name__ == '__main__':
+    generate_traffic_and_visualize()
